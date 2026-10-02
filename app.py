@@ -5,18 +5,23 @@ from PIL import Image
 from PIL.ExifTags import TAGS
 from hachoir.parser import createParser
 from hachoir.metadata import extractMetadata
+import uuid
+import os
 
 st.title("TRUSTEYE - Image Authenticity Checker")
 st.write("Upload a photo to check if it might be edited or manipulated.")
 
 def perform_ela(image, quality=70, amplify=15):
-    temp_path = "temp_original.jpg"
-    resaved_path = "temp_resaved.jpg"
+    unique_id = uuid.uuid4().hex
+    temp_path = f"temp_original_{unique_id}.jpg"
+    resaved_path = f"temp_resaved_{unique_id}.jpg"
     cv2.imwrite(temp_path, image)
     cv2.imwrite(resaved_path, image, [cv2.IMWRITE_JPEG_QUALITY, quality])
     resaved_img = cv2.imread(resaved_path)
     diff = cv2.absdiff(image, resaved_img)
     diff_amplified = cv2.convertScaleAbs(diff, alpha=amplify)
+    os.remove(temp_path)
+    os.remove(resaved_path)
     return diff_amplified
 
 def check_metadata(pil_image):
@@ -124,10 +129,12 @@ st.subheader("Video Analysis (Beta)")
 video_file = st.file_uploader("Choose a video", type=["mp4", "avi", "mov"], key="video_uploader")
 
 if video_file is not None:
-    with open("temp_video.mp4", "wb") as f:
+    video_unique_id = uuid.uuid4().hex
+    video_temp_path = f"temp_video_{video_unique_id}.mp4"
+    with open(video_temp_path, "wb") as f:
         f.write(video_file.read())
 
-    cap = cv2.VideoCapture("temp_video.mp4")
+    cap = cv2.VideoCapture(video_temp_path)
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     fps = cap.get(cv2.CAP_PROP_FPS)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -141,7 +148,7 @@ if video_file is not None:
     st.write(f"Total frames: {frame_count}")
 
     st.subheader("Video Metadata Analysis")
-    video_metadata_findings, video_software_suspicious, video_metadata_missing = check_video_metadata("temp_video.mp4")
+    video_metadata_findings, video_software_suspicious, video_metadata_missing = check_video_metadata(video_temp_path)
     for finding in video_metadata_findings:
         st.write(finding)
 
@@ -164,6 +171,8 @@ if video_file is not None:
         frame_num += 1
 
     cap.release()
+    if os.path.exists(video_temp_path):
+        os.remove(video_temp_path)
 
     if frame_scores:
         avg_ela = np.mean(frame_scores)

@@ -7,6 +7,7 @@ from hachoir.parser import createParser
 from hachoir.metadata import extractMetadata
 import uuid
 import os
+from transformers import pipeline
 
 st.title("TRUSTEYE - Image Authenticity Checker")
 st.write("Upload a photo to check if it might be edited or manipulated.")
@@ -87,6 +88,19 @@ def calculate_confidence(ela_result, metadata_suspicious=False, metadata_missing
     total_score = min(ela_score + metadata_score, 100)
     return round(total_score, 1)
 
+@st.cache_resource
+def load_ai_detector():
+    return pipeline("image-classification", model="Organika/sdxl-detector")
+
+def check_ai_generated(pil_image):
+    detector = load_ai_detector()
+    results = detector(pil_image)
+    ai_score = 0
+    for r in results:
+        if "ai" in r["label"].lower() or "artificial" in r["label"].lower():
+            ai_score = r["score"] * 100
+    return ai_score
+
 def show_verdict(confidence):
     st.metric(label="Likelihood of editing/manipulation", value=f"{confidence}%")
     if confidence >= 60:
@@ -120,6 +134,18 @@ if uploaded_file is not None:
     metadata_missing = "No metadata found" in metadata_findings[0]
     for finding in metadata_findings:
         st.write(finding)
+
+    st.subheader("AI-Generated Image Detection")
+    with st.spinner("Analyzing with AI detection model..."):
+        ai_score = check_ai_generated(Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)))
+    st.metric(label="AI-generated likelihood", value=f"{ai_score:.1f}%")
+    if ai_score >= 60:
+        st.error("This image shows strong signs of being AI-generated.")
+    elif ai_score >= 30:
+        st.warning("This image shows some signs of being AI-generated, but is not conclusive.")
+    else:
+        st.success("This image does not show strong signs of being AI-generated.")
+    st.caption("This uses a pretrained AI-image-detection model (Organika/sdxl-detector, trained mainly on Stable Diffusion outputs). It may not reliably detect images from other generators like Midjourney, DALL-E, or Sora - this is a known limitation of single-model AI detectors.")
 
     st.subheader("Overall Confidence Score")
     confidence = calculate_confidence(ela_result, software_suspicious, metadata_missing)
